@@ -119,7 +119,6 @@
             <div class="flex gap-2">
                 <input type="text" id="map-search-input" onkeypress="if(event.key === 'Enter') searchOnMap()" placeholder="ابحث عن مدينة أو منطقة..." class="glass-card rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-400 w-full placeholder-amber-100/30">
                 <button onclick="searchOnMap()" id="map-search-btn" class="bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 text-white rounded-lg px-4 py-2 text-sm transition whitespace-nowrap">بحث</button>
-                <!-- تم استبدال دالة تحديد الموقع القديمة بالدالة الجديدة -->
                 <button onclick="getCurrentLocation(false)" class="glass-card rounded-lg px-3 py-2 text-amber-200 hover:bg-amber-900/30 transition" title="موقعي الحالي">📍</button>
             </div>
 
@@ -324,14 +323,14 @@
         let tempLat = currentLat;
         let tempLng = currentLng;
 
-        // ===================== MAP & LOCATION FUNCTIONS (مستخرج من تطبيق الطقس) =====================
+        // ===================== MAP & LOCATION FUNCTIONS =====================
         
         // فتح نافذة الخريطة
         function openMapModal() {
             document.getElementById('map-modal').classList.remove('hidden');
             tempLat = currentLat;
             tempLng = currentLng;
-            initMap(); // استدعاء دالة التهيئة المأخوذة من الطقس
+            initMap(); 
         }
 
         // إغلاق النافذة
@@ -345,7 +344,7 @@
                 `خط العرض: ${tempLat.toFixed(4)} | خط الطول: ${tempLng.toFixed(4)}`;
         }
 
-        // تهيئة الخريطة (بالمنطق المستخرج من تطبيق الطقس)
+        // تهيئة الخريطة (تم استبدال الروابط لتجنب 403 في الـ APK)
         function initMap() {
             if (map) {
                 map.setView([tempLat, tempLng], 10);
@@ -355,10 +354,14 @@
             }
             
             map = L.map('map').setView([tempLat, tempLng], 10);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(map);
+            
+            // ✅ تم الاستبدال إلى خوادم CartoDB لأنها تعمل داخل الـ APK بدون مشاكل 403
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '© OpenStreetMap contributors, © CARTO'
+            }).addTo(map);
+            
             marker = L.marker([tempLat, tempLng], {draggable: true}).addTo(map);
 
-            // التقاط الإحداثيات عند النقر (كما في تطبيق الطقس)
             map.on('click', function(e) { 
                 tempLat = e.latlng.lat; 
                 tempLng = e.latlng.lng;
@@ -377,7 +380,7 @@
             updateMapCoordsText();
         }
 
-        // معالجة الموقع وجلب اسم المدينة وعرض البيانات (نفس دالة setLocation من تطبيق الطقس)
+        // معالجة الموقع وجلب اسم المدينة وعرض البيانات
         function setLocation(lat, lng) {
             currentLat = lat; 
             currentLng = lng;
@@ -387,10 +390,10 @@
 
             document.getElementById('city-name').innerHTML = 'جاري التحديث...';
             
-            // استخدام Nominatim API كما هو موجود في كود الطقس المستخرج
-            fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ar`)
+            // ✅ تم الاستبدال إلى API BigDataCloud لأنه لا يسبب 403 في تطبيقات الموبايل
+            fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=ar`)
                 .then(res => res.json()).then(data => {
-                    const name = data.address?.city || data.address?.town || data.address?.village || data.address?.state || 'موقع محدد';
+                    const name = data.city || data.locality || data.principalSubdivision || 'موقع محدد';
                     currentCity = name;
                     document.getElementById('city-name').innerHTML = `📍 ${currentCity}`;
                 }).catch(() => { 
@@ -398,13 +401,12 @@
                     document.getElementById('city-name').innerHTML = `📍 ${currentCity}`; 
                 });
 
-            // تحديث بيانات الصلاة للموقع الجديد
             renderPrayerTimes();
             updateQibla();
             if (activeSection === 'monthly') renderMonthlyTable();
         }
 
-        // تحديد الموقع بالـ GPS (مستخرج ومطابق لتطبيق الطقس)
+        // تحديد الموقع بالـ GPS 
         function getCurrentLocation(isSilent = false) {
             if (!isSilent) document.getElementById('city-name').innerHTML = 'جاري التحديد...';
             
@@ -421,23 +423,21 @@
                     }
                     
                     setLocation(lat, lng);
-                    closeMapModal(); // إغلاق نافذة الخريطة بعد التحديد
+                    closeMapModal(); 
                 }, () => {
-                    if(!isSilent) alert('تعذر الحصول على الموقع');
+                    if(!isSilent) alert('تعذر الحصول على الموقع. تأكد من تفعيل الـ GPS وصلاحيات الموقع للتطبيق.');
                     document.getElementById('city-name').innerHTML = currentCity;
                 });
             } else {
-                if(!isSilent) alert('المتصفح لا يدعم GPS');
+                if(!isSilent) alert('المتصفح أو الجهاز لا يدعم GPS');
             }
         }
 
-        // عند ضغط زر التأكيد في نافذة الخريطة
         function confirmMapLocation() {
             setLocation(tempLat, tempLng);
             closeMapModal();
         }
 
-        // البحث اليدوي في الخريطة
         async function searchOnMap() {
             const query = document.getElementById('map-search-input').value.trim();
             if (!query) return;
@@ -447,6 +447,7 @@
             searchBtn.innerHTML = '⏳';
 
             try {
+                // Open-Meteo API يعمل جيداً مع الـ APK
                 const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=ar&format=json`);
                 const data = await response.json();
 
