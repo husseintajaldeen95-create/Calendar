@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مواقيت الصلاة والتقويم الإسلامي</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Noto+Kufi+Arabic:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- مكتبة الخرائط Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Noto+Kufi+Arabic:wght@400;500;600;700;800&display=swap');
+
+        * { font-family: 'Noto Kufi Arabic', sans-serif; }
+
+        body {
+            background: linear-gradient(135deg, #0a1628 0%, #1a2744 30%, #0d2137 60%, #0a1628 100%);
+            min-height: 100vh;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .gold-gradient {
+            background: linear-gradient(135deg, #c9a84c, #f0d78c, #c9a84c);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .gold-border {
+            border: 1px solid rgba(201, 168, 76, 0.3);
+        }
+
+        .prayer-active {
+            background: linear-gradient(135deg, rgba(201, 168, 76, 0.15), rgba(201, 168, 76, 0.05));
+            border: 1px solid rgba(201, 168, 76, 0.4);
+        }
+
+        .moon-glow {
+            filter: drop-shadow(0 0 20px rgba(201, 168, 76, 0.4));
+        }
+
+        .pattern-overlay {
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0L60 30L30 60L0 30z' fill='none' stroke='rgba(201,168,76,0.05)' stroke-width='0.5'/%3E%3C/svg%3E"); 
+        }
+
+        @keyframes pulse-gold {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .animate-float { animation: float 6s ease-in-out infinite; }
+        .animate-pulse-gold { animation: pulse-gold 3s ease-in-out infinite; }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            animation: twinkle 3s ease-in-out infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .tab-active {
+            background: linear-gradient(135deg, rgba(201, 168, 76, 0.25), rgba(201, 168, 76, 0.1));
+            border: 1px solid rgba(201, 168, 76, 0.5);
+            color: #f0d78c !important;
+        }
+
+        .event-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #c9a84c;
+        }
+
+        .hijri-font {
+            font-family: 'Amiri', serif;
+        }
+
+        .leaflet-container {
+            font-family: 'Noto Kufi Arabic', sans-serif;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="text-white overflow-x-hidden">
+    <div id="stars-container" class="fixed inset-0 pointer-events-none z-0"></div>
+    <div class="fixed inset-0 pattern-overlay pointer-events-none z-0"></div>
+
+    <!-- Map Modal -->
+    <div id="map-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm hidden transition-opacity duration-300">
+        <div class="glass-card rounded-3xl p-5 w-full max-w-3xl mx-4 gold-border shadow-2xl flex flex-col gap-4">
+            <div class="flex justify-between items-center">
+                <h3 class="text-xl font-bold gold-gradient">تحديد الموقع على الخريطة</h3>
+                <button onclick="closeMapModal()" class="text-amber-200 hover:text-white text-3xl leading-none">&times;</button>
+            </div>
+            
+            <div class="flex gap-2">
+                <input type="text" id="map-search-input" onkeypress="if(event.key === 'Enter') searchOnMap()" placeholder="ابحث عن مدينة أو منطقة..." class="glass-card rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-400 w-full placeholder-amber-100/30">
+                <button onclick="searchOnMap()" id="map-search-btn" class="bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 text-white rounded-lg px-4 py-2 text-sm transition whitespace-nowrap">بحث</button>
+                <!-- تم استبدال دالة تحديد الموقع القديمة بالدالة الجديدة -->
+                <button onclick="getCurrentLocation(false)" class="glass-card rounded-lg px-3 py-2 text-amber-200 hover:bg-amber-900/30 transition" title="موقعي الحالي">📍</button>
+            </div>
+
+            <div class="relative w-full h-64 md:h-96 rounded-xl overflow-hidden border border-amber-700/30">
+                <div id="map" class="w-full h-full"></div>
+            </div>
+            
+            <div class="text-sm text-amber-200/70 text-center" id="map-selected-coords">انقر على الخريطة لتحديد موقعك بدقة</div>
+            
+            <button onclick="confirmMapLocation()" class="w-full bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white rounded-xl py-3 font-bold transition shadow-lg">
+                تأكيد وحفظ الموقع
+            </button>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="relative z-10 pt-4 pb-2">
+        <div class="max-w-5xl mx-auto px-4">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-3 w-full md:w-auto justify-center md:justify-start">
+                    <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-600 to-amber-800 flex items-center justify-center shadow-lg">
+                        <svg class="w-8 h-8 text-amber-200" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" opacity="0"/><path d="M21.64 13A9 9 0 1 1 11 2.36 7 7 0 0 0 21.64 13z"/></svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold gold-gradient">التقويم الإسلامي</h1>
+                        <p class="text-xs text-amber-200/60">مواقيت الصلاة والتقويم الهجري</p>
+                    </div>
+                </div>
+
+                <div class="flex flex-col items-center md:items-end gap-2 w-full md:w-auto">
+                    <div class="flex items-center gap-1 text-amber-200 text-sm font-bold">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        <span id="city-name">بغداد</span>
+                    </div>
+                    <button onclick="openMapModal()" class="glass-card border border-amber-600/40 rounded-lg px-4 py-2 text-xs text-amber-100 hover:bg-amber-900/40 transition shadow-lg flex items-center gap-2 w-full md:w-auto justify-center">
+                        <span>🗺️</span> تغيير الموقع من الخريطة
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="relative z-10 max-w-5xl mx-auto px-4 pb-8">
+        <!-- Date & Moon Section -->
+        <section class="mt-4 mb-6">
+            <div class="glass-card rounded-2xl p-6 gold-border relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-amber-900/10 to-transparent pointer-events-none"></div>
+                <div class="flex flex-col md:flex-row items-center justify-between gap-6 relative">
+                    <div class="text-center md:text-right flex-1">
+                        <div class="text-amber-200/60 text-sm mb-1" id="day-name"></div>
+                        <div class="text-3xl md:text-4xl font-bold gold-gradient hijri-font mb-2" id="hijri-date"></div>
+                        <div class="text-lg text-amber-100/80" id="gregorian-date"></div>
+                    </div>
+                    <div class="animate-float">
+                        <div class="relative">
+                            <div class="w-28 h-28 rounded-full moon-glow" id="moon-visual">
+                                <svg viewBox="0 0 100 100" class="w-full h-full">
+                                    <defs>
+                                        <radialGradient id="moonGrad" cx="40%" cy="40%">
+                                            <stop offset="0%" style="stop-color:#f5e6b8"/>
+                                            <stop offset="100%" style="stop-color:#c9a84c"/>
+                                        </radialGradient>
+                                    </defs>
+                                    <circle cx="50" cy="50" r="45" fill="url(#moonGrad)" opacity="0.9"/>
+                                </svg>
+                            </div>
+                            <div class="text-center mt-2 text-sm text-amber-200/70" id="moon-phase-name"></div>
+                        </div>
+                    </div>
+                    <div class="text-center flex-1">
+                        <div class="text-amber-200/60 text-sm mb-2">الصلاة القادمة</div>
+                        <div class="text-2xl font-bold text-amber-100" id="next-prayer-name">--</div>
+                        <div class="text-3xl font-bold gold-gradient mt-1 font-mono tracking-wider" id="countdown-timer" dir="ltr">--:--:--</div>
+                        <div class="text-sm text-amber-200/50 mt-1" id="next-prayer-time"></div>
+                    </div>
+                </div>
+                <div id="event-banner" class="mt-4 p-3 rounded-xl bg-amber-900/20 border border-amber-700/30 text-center hidden">
+                    <div class="flex items-center justify-center gap-2">
+                        <span class="text-amber-400">★</span>
+                        <span class="text-amber-200 text-sm" id="event-text"></span>
+                        <span class="text-amber-400">★</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Prayer Times Grid -->
+        <section class="mb-6">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-lg font-bold text-amber-100">مواقيت الصلاة</h2>
+                <div class="text-xs text-amber-200/50" id="calc-method">طريقة الحساب: جعفري</div>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3" id="prayer-times-grid"></div>
+        </section>
+
+        <!-- Toggle Sections Bar -->
+        <section class="mb-6">
+            <div class="flex gap-2 mb-4 overflow-x-auto scrollbar-hide pb-2">
+                <button onclick="toggleSection('calendar')" class="tab-btn glass-card px-4 py-2 rounded-xl text-sm font-medium text-amber-200/60 whitespace-nowrap transition hover:bg-amber-900/20" data-tab="calendar">📅 التقويم الشهري</button>
+                <button onclick="toggleSection('events')" class="tab-btn glass-card px-4 py-2 rounded-xl text-sm font-medium text-amber-200/60 whitespace-nowrap transition hover:bg-amber-900/20" data-tab="events">🌙 المناسبات الدينية</button>
+                <button onclick="toggleSection('monthly')" class="tab-btn glass-card px-4 py-2 rounded-xl text-sm font-medium text-amber-200/60 whitespace-nowrap transition hover:bg-amber-900/20" data-tab="monthly">📊 جدول الشهر</button>
+                <button onclick="toggleSection('info')" class="tab-btn glass-card px-4 py-2 rounded-xl text-sm font-medium text-amber-200/60 whitespace-nowrap transition hover:bg-amber-900/20" data-tab="info">ℹ️ معلومات</button>
+            </div>
+
+            <!-- Calendar Content -->
+            <div id="tab-calendar" class="tab-content glass-card rounded-2xl gold-border p-5 hidden mt-2">
+                <div class="flex items-center justify-between mb-4">
+                    <button onclick="changeMonth(-1)" class="w-8 h-8 rounded-lg glass-card flex items-center justify-center text-amber-200 hover:bg-amber-900/30 transition">❮</button>
+                    <div class="text-center">
+                        <div class="text-lg font-bold gold-gradient" id="cal-hijri-month"></div>
+                        <div class="text-xs text-amber-200/50" id="cal-gregorian-month"></div>
+                    </div>
+                    <button onclick="changeMonth(1)" class="w-8 h-8 rounded-lg glass-card flex items-center justify-center text-amber-200 hover:bg-amber-900/30 transition">❯</button>
+                </div>
+                <div class="grid grid-cols-7 gap-1 mb-2 text-center text-xs text-amber-400/70">
+                    <div>أحد</div><div>إثن</div><div>ثلا</div><div>أرب</div><div>خمي</div><div>جمع</div><div>سبت</div>
+                </div>
+                <div class="grid grid-cols-7 gap-1" id="calendar-grid"></div>
+            </div>
+
+            <!-- Events Content -->
+            <div id="tab-events" class="tab-content glass-card rounded-2xl gold-border p-5 hidden mt-2">
+                <h3 class="text-lg font-bold gold-gradient mb-4">المناسبات الدينية القادمة</h3>
+                <div class="space-y-3" id="events-list"></div>
+            </div>
+
+            <!-- Monthly Prayer Table Content -->
+            <div id="tab-monthly" class="tab-content glass-card rounded-2xl gold-border p-5 hidden overflow-x-auto mt-2">
+                <h3 class="text-lg font-bold gold-gradient mb-4">جدول مواقيت الصلاة - الشهر الحالي</h3>
+                <table class="w-full text-sm min-w-[600px]">
+                    <thead>
+                        <tr class="border-b border-amber-700/30">
+                            <th class="py-2 px-2 text-amber-400/80 text-right">اليوم</th>
+                            <th class="py-2 px-2 text-amber-400/80">الفجر</th>
+                            <th class="py-2 px-2 text-amber-400/80">الشروق</th>
+                            <th class="py-2 px-2 text-amber-400/80">الظهر</th>
+                            <th class="py-2 px-2 text-amber-400/80">العصر</th>
+                            <th class="py-2 px-2 text-amber-400/80">المغرب</th>
+                            <th class="py-2 px-2 text-amber-400/80">العشاء</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monthly-table-body"></tbody>
+                </table>
+            </div>
+
+            <!-- Info Content -->
+            <div id="tab-info" class="tab-content glass-card rounded-2xl gold-border p-8 hidden text-center mt-2">
+                <div class="inline-block p-6 rounded-2xl bg-amber-900/20 border border-amber-700/30 shadow-lg">
+                    <div class="text-4xl mb-4">💻</div>
+                    <h3 class="text-xl font-bold gold-gradient mb-2">برمجة وتصميم</h3>
+                    <p class="text-amber-100 text-lg font-bold">سيد حسين تاج الدين</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Qibla Direction -->
+        <section class="mb-6">
+            <div class="glass-card rounded-2xl gold-border p-5">
+                <h2 class="text-lg font-bold gold-gradient mb-4 text-center">🧭 اتجاه القبلة</h2>
+                <div class="flex flex-col items-center">
+                    <div class="relative w-48 h-48">
+                        <svg viewBox="0 0 200 200" class="w-full h-full">
+                            <circle cx="100" cy="100" r="90" fill="none" stroke="rgba(201,168,76,0.2)" stroke-width="2"/>
+                            <circle cx="100" cy="100" r="70" fill="none" stroke="rgba(201,168,76,0.1)" stroke-width="1"/>
+                            <text x="100" y="20" text-anchor="middle" fill="rgba(201,168,76,0.8)" font-size="12">شمال</text>
+                            <text x="100" y="192" text-anchor="middle" fill="rgba(201,168,76,0.5)" font-size="10">جنوب</text>
+                            <text x="15" y="104" text-anchor="middle" fill="rgba(201,168,76,0.5)" font-size="10">شرق</text>
+                            <text x="185" y="104" text-anchor="middle" fill="rgba(201,168,76,0.5)" font-size="10">غرب</text>
+                            <g id="qibla-arrow" transform="rotate(0, 100, 100)">
+                                <line x1="100" y1="100" x2="100" y2="35" stroke="#c9a84c" stroke-width="3" stroke-linecap="round"/>
+                                <polygon points="100,28 93,42 107,42" fill="#c9a84c"/>
+                            </g>
+                            <circle cx="100" cy="100" r="5" fill="#c9a84c"/>
+                        </svg>
+                    </div>
+                    <div class="text-center mt-2">
+                        <span class="text-amber-200/60 text-sm">اتجاه القبلة: </span>
+                        <span class="text-amber-100 font-bold" id="qibla-degrees">--°</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <footer class="text-center py-6 border-t border-amber-700/20">
+            <p class="text-amber-200/30 text-xs mt-1">© 2024 جميع الحقوق محفوظة</p>
+        </footer>
+    </main>
+
+    <script>
+        // ===================== CONFIG & STATE =====================
+        let currentLat = 33.3152; // Default: Baghdad
+        let currentLng = 44.3661;
+        let currentCity = 'بغداد';
+        let calendarOffset = 0;
+        let prayerTimesData = {};
+        let activeSection = null; 
+        let hijriOffset = -1; 
+
+        // ===================== MAP VARIABLES =====================
+        let map = null;
+        let marker = null;
+        let tempLat = currentLat;
+        let tempLng = currentLng;
+
+        // ===================== MAP & LOCATION FUNCTIONS (مستخرج من تطبيق الطقس) =====================
+        
+        // فتح نافذة الخريطة
+        function openMapModal() {
+            document.getElementById('map-modal').classList.remove('hidden');
+            tempLat = currentLat;
+            tempLng = currentLng;
+            initMap(); // استدعاء دالة التهيئة المأخوذة من الطقس
+        }
+
+        // إغلاق النافذة
+        function closeMapModal() {
+            document.getElementById('map-modal').classList.add('hidden');
+        }
+
+        // تحديث نص الإحداثيات في الخريطة
+        function updateMapCoordsText() {
+            document.getElementById('map-selected-coords').textContent = 
+                `خط العرض: ${tempLat.toFixed(4)} | خط الطول: ${tempLng.toFixed(4)}`;
+        }
+
+        // تهيئة الخريطة (بالمنطق المستخرج من تطبيق الطقس)
+        function initMap() {
+            if (map) {
+                map.setView([tempLat, tempLng], 10);
+                marker.setLatLng([tempLat, tempLng]);
+                setTimeout(() => map.invalidateSize(), 100);
+                return;
+            }
+            
+            map = L.map('map').setView([tempLat, tempLng], 10);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(map);
+            marker = L.marker([tempLat, tempLng], {draggable: true}).addTo(map);
+
+            // التقاط الإحداثيات عند النقر (كما في تطبيق الطقس)
+            map.on('click', function(e) { 
+                tempLat = e.latlng.lat; 
+                tempLng = e.latlng.lng;
+                marker.setLatLng([tempLat, tempLng]);
+                updateMapCoordsText();
+            });
+
+            marker.on('dragend', function(e) {
+                const position = marker.getLatLng();
+                tempLat = position.lat;
+                tempLng = position.lng;
+                updateMapCoordsText();
+            });
+
+            setTimeout(() => map.invalidateSize(), 100);
+            updateMapCoordsText();
+        }
+
+        // معالجة الموقع وجلب اسم المدينة وعرض البيانات (نفس دالة setLocation من تطبيق الطقس)
+        function setLocation(lat, lng) {
+            currentLat = lat; 
+            currentLng = lng;
+            
+            if (marker) marker.setLatLng([lat, lng]); 
+            else if (map) marker = L.marker([lat, lng]).addTo(map);
+
+            document.getElementById('city-name').innerHTML = 'جاري التحديث...';
+            
+            // استخدام Nominatim API كما هو موجود في كود الطقس المستخرج
+            fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ar`)
+                .then(res => res.json()).then(data => {
+                    const name = data.address?.city || data.address?.town || data.address?.village || data.address?.state || 'موقع محدد';
+                    currentCity = name;
+                    document.getElementById('city-name').innerHTML = `📍 ${currentCity}`;
+                }).catch(() => { 
+                    currentCity = `${lat.toFixed(2)}, ${lng.toFixed(2)}`;
+                    document.getElementById('city-name').innerHTML = `📍 ${currentCity}`; 
+                });
+
+            // تحديث بيانات الصلاة للموقع الجديد
+            renderPrayerTimes();
+            updateQibla();
+            if (activeSection === 'monthly') renderMonthlyTable();
+        }
+
+        // تحديد الموقع بالـ GPS (مستخرج ومطابق لتطبيق الطقس)
+        function getCurrentLocation(isSilent = false) {
+            if (!isSilent) document.getElementById('city-name').innerHTML = 'جاري التحديد...';
+            
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    
+                    if(map) {
+                        map.setView([lat, lng], 10);
+                        tempLat = lat;
+                        tempLng = lng;
+                        updateMapCoordsText();
+                    }
+                    
+                    setLocation(lat, lng);
+                    closeMapModal(); // إغلاق نافذة الخريطة بعد التحديد
+                }, () => {
+                    if(!isSilent) alert('تعذر الحصول على الموقع');
+                    document.getElementById('city-name').innerHTML = currentCity;
+                });
+            } else {
+                if(!isSilent) alert('المتصفح لا يدعم GPS');
+            }
+        }
+
+        // عند ضغط زر التأكيد في نافذة الخريطة
+        function confirmMapLocation() {
+            setLocation(tempLat, tempLng);
+            closeMapModal();
+        }
+
+        // البحث اليدوي في الخريطة
+        async function searchOnMap() {
+            const query = document.getElementById('map-search-input').value.trim();
+            if (!query) return;
+
+            const searchBtn = document.getElementById('map-search-btn');
+            const originalText = searchBtn.innerHTML;
+            searchBtn.innerHTML = '⏳';
+
+            try {
+                const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=ar&format=json`);
+                const data = await response.json();
+
+                if (data && data.results && data.results.length > 0) {
+                    tempLat = parseFloat(data.results[0].latitude);
+                    tempLng = parseFloat(data.results[0].longitude);
+                    
+                    map.setView([tempLat, tempLng], 12);
+                    marker.setLatLng([tempLat, tempLng]);
+                    updateMapCoordsText();
+                } else {
+                    alert('لم يتم العثور على المدينة.');
+                }
+            } catch (error) {
+                alert('حدث خطأ أثناء البحث.');
+            } finally {
+                searchBtn.innerHTML = originalText;
+            }
+        }
+
+        // ===================== HIJRI DATE CONVERSION =====================
+        function gregorianToHijri(gYear, gMonth, gDay) {
+            const date = new Date(gYear, gMonth - 1, gDay);
+            date.setDate(date.getDate() + hijriOffset);
+
+            const formatter = new Intl.DateTimeFormat('en-US-u-ca-islamic-umalqura', {
+                day: 'numeric', month: 'numeric', year: 'numeric'
+            });
+            
+            const parts = formatter.formatToParts(date);
+            let hDay, hMonth, hYear;
+            
+            for (const part of parts) {
+                if (part.type === 'day') hDay = parseInt(part.value, 10);
+                if (part.type === 'month') hMonth = parseInt(part.value, 10);
+                if (part.type === 'year') hYear = parseInt(part.value, 10);
+            }
+            
+            return { year: hYear, month: hMonth, day: hDay };
+        }
+
+        const hijriMonths = ['محرّم الحرام', 'صفر', 'ربيع الأوّل', 'ربيع الآخر', 'جمادى الأولى', 'جمادى الآخرة', 'رجب', 'شعبان', 'رمضان المبارك', 'شوّال', 'ذو القعدة', 'ذو الحجّة'];
+        const arabicDays = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+        const gregorianMonthsAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+
+        // ===================== PRAYER TIME CALCULATIONS =====================
+        function fixAngle(angle) { return (angle % 360 + 360) % 360; }
+        function fixHour(hour) { return (hour % 24 + 24) % 24; }
+        function toRadians(deg) { return deg * Math.PI / 180; }
+        function toDegrees(rad) { return rad * 180 / Math.PI; }
+
+        function calculatePrayerTimes(lat, lng, date) {
+            const year = date.getFullYear(), month = date.getMonth() + 1, day = date.getDate();
+            const a = Math.floor((14 - month) / 12), y = year + 4800 - a, m = month + 12 * a - 3;
+            const jd = day + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
+            const d = jd - 2451545.0;
+            const g = fixAngle(357.529 + 0.98560028 * d), q = fixAngle(280.459 + 0.98564736 * d);
+            const L = fixAngle(q + 1.915 * Math.sin(toRadians(g)) + 0.020 * Math.sin(toRadians(2 * g)));
+            const e = 23.439 - 0.00000036 * d;
+            let RA = toDegrees(Math.atan2(Math.cos(toRadians(e)) * Math.sin(toRadians(L)), Math.cos(toRadians(L))));
+            RA = fixAngle(RA + 90 * (Math.floor(L / 90) - Math.floor(RA / 90)));
+            const EqT = (q - RA) / 15, noon = 12 - EqT - lng / 15;
+            const tz = -date.getTimezoneOffset() / 60, noonLocal = fixHour(noon + tz);
+            const D = toDegrees(Math.asin(Math.sin(toRadians(e)) * Math.sin(toRadians(L))));
+
+            function hourAngle(angle) {
+                const cosHA = (Math.sin(toRadians(angle)) - Math.sin(toRadians(lat)) * Math.sin(toRadians(D))) / (Math.cos(toRadians(lat)) * Math.cos(toRadians(D)));
+                if (cosHA > 1 || cosHA < -1) return 0;
+                return toDegrees(Math.acos(cosHA)) / 15;
+            }
+            
+            const fajrAngle = -16, ishaAngle = -14, maghribAngle = -4;   
+            const sunrise = fixHour(noonLocal - hourAngle(-0.8333)), sunset = fixHour(noonLocal + hourAngle(-0.8333));
+            const fajr = fixHour(noonLocal - hourAngle(fajrAngle)), maghrib = fixHour(noonLocal + hourAngle(maghribAngle)), isha = fixHour(noonLocal + hourAngle(ishaAngle));
+            const asrAngle = toDegrees(Math.atan(1 / (1 + Math.tan(toRadians(Math.abs(lat - D)))))), asr = fixHour(noonLocal + hourAngle(asrAngle));
+            
+            return {
+                fajr: formatTime(fajr), sunrise: formatTime(sunrise), dhuhr: formatTime(noonLocal + 0.0167), asr: formatTime(asr), maghrib: formatTime(maghrib), isha: formatTime(isha),
+                fajrRaw: fajr, sunriseRaw: sunrise, dhuhrRaw: noonLocal + 0.0167, asrRaw: asr, maghribRaw: maghrib, ishaRaw: isha
+            };
+        }
+
+        function formatTime(hours) {
+            hours = fixHour(hours);
+            let h = Math.floor(hours), m = Math.floor((hours - h) * 60 + 0.5); 
+            if (m >= 60) { m -= 60; h += 1; }
+            h = h % 24;
+            const period = h >= 12 ? 'م' : 'ص';
+            let h12 = h % 12; h12 = h12 === 0 ? 12 : h12;
+            return `${h12}:${m.toString().padStart(2, '0')} ${period}`;
+        }
+
+        // ===================== MOON PHASE =====================
+        function getMoonPhase(date) {
+            const year = date.getFullYear(), month = date.getMonth() + 1, day = date.getDate();
+            let c = 0, e = 0, jd = 0, b = 0;
+            if (month < 3) { c = 365.25 * (year - 1); e = 30.6001 * (month + 13); } else { c = 365.25 * year; e = 30.6001 * (month + 1); }
+            jd = Math.floor(c) + Math.floor(e) + day - 694039.09; jd /= 29.5305882;
+            b = Math.floor(jd); jd -= b;
+            const age = jd * 29.5305882;
+            
+            let phaseName = '';
+            if (age < 1.84566) phaseName = 'محاق (هلال جديد)'; else if (age < 5.53699) phaseName = 'هلال متزايد';
+            else if (age < 9.22831) phaseName = 'تربيع أول'; else if (age < 12.91963) phaseName = 'أحدب متزايد';
+            else if (age < 16.61096) phaseName = 'بدر (اكتمال)'; else if (age < 20.30228) phaseName = 'أحدب متناقص';
+            else if (age < 23.99361) phaseName = 'تربيع أخير'; else if (age < 27.68493) phaseName = 'هلال متناقص';
+            else phaseName = 'محاق (هلال جديد)';
+            return { age, phaseName, illumination: jd };
+        }
+
+        // ===================== QIBLA DIRECTION =====================
+        function calculateQibla(lat, lng) {
+            const meccaLat = 21.4225, meccaLng = 39.8262;
+            const phiS = toRadians(lat), lambdaS = toRadians(lng), phiM = toRadians(meccaLat), lambdaM = toRadians(meccaLng);
+            const qibla = toDegrees(Math.atan2(Math.sin(lambdaM - lambdaS), Math.cos(phiS) * Math.tan(phiM) - Math.sin(phiS) * Math.cos(lambdaM - lambdaS)));
+            return (qibla + 360) % 360;
+        }
+
+        // ===================== RELIGIOUS EVENTS =====================
+        const islamicEvents = [
+            { month: 1, day: 1, name: 'رأس السنة الهجرية', icon: '🌙' },
+            { month: 1, day: 10, name: 'عاشوراء - استشهاد الإمام الحسين (ع)', icon: '🖤' },
+            { month: 2, day: 20, name: 'أربعين الإمام الحسين (ع)', icon: '🖤' },
+            { month: 3, day: 17, name: 'ولادة الإمام جعفر الصادق (ع)', icon: '🌟' },
+            { month: 7, day: 13, name: 'ولادة الإمام علي (ع)', icon: '🌟' },
+            { month: 8, day: 15, name: 'ولادة الإمام المهدي (عج)', icon: '💚' },
+            { month: 9, day: 1, name: 'بداية شهر رمضان المبارك', icon: '🌙' },
+            { month: 10, day: 1, name: 'عيد الفطر المبارك', icon: '🎉' },
+            { month: 12, day: 10, name: 'عيد الأضحى المبارك', icon: '🎉' },
+            { month: 12, day: 18, name: 'عيد الغدير', icon: '💚' }
+        ];
+
+        // ===================== RENDER FUNCTIONS =====================
+        function createStars() {
+            const container = document.getElementById('stars-container');
+            for (let i = 0; i < 100; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.style.left = Math.random() * 100 + '%'; star.style.top = Math.random() * 100 + '%';
+                star.style.animationDelay = Math.random() * 5 + 's';
+                star.style.width = (Math.random() * 2 + 1) + 'px'; star.style.height = star.style.width;
+                container.appendChild(star);
+            }
+        }
+
+        function updateDates() {
+            const now = new Date();
+            const hijri = gregorianToHijri(now.getFullYear(), now.getMonth() + 1, now.getDate());
+            document.getElementById('day-name').textContent = arabicDays[now.getDay()];
+            document.getElementById('hijri-date').textContent = `${hijri.day} ${hijriMonths[hijri.month - 1]} ${hijri.year} هـ`;
+            document.getElementById('gregorian-date').textContent = `${now.getDate()} ${gregorianMonthsAr[now.getMonth()]} ${now.getFullYear()} م`;
+            document.getElementById('moon-phase-name').textContent = getMoonPhase(now).phaseName;
+            
+            const todayEvent = islamicEvents.find(e => e.month === hijri.month && e.day === hijri.day);
+            if (todayEvent) {
+                document.getElementById('event-banner').classList.remove('hidden');
+                document.getElementById('event-text').textContent = todayEvent.name;
+            }
+        }
+
+        function renderPrayerTimes() {
+            const now = new Date();
+            const times = calculatePrayerTimes(currentLat, currentLng, now);
+            prayerTimesData = times;
+            const prayers = [
+                { name: 'الفجر', time: times.fajr, raw: times.fajrRaw, icon: '🌅' },
+                { name: 'الشروق', time: times.sunrise, raw: times.sunriseRaw, icon: '☀️' },
+                { name: 'الظهر', time: times.dhuhr, raw: times.dhuhrRaw, icon: '🕐' },
+                { name: 'العصر', time: times.asr, raw: times.asrRaw, icon: '🌤' },
+                { name: 'المغرب', time: times.maghrib, raw: times.maghribRaw, icon: '🌅' },
+                { name: 'العشاء', time: times.isha, raw: times.ishaRaw, icon: '🌙' }
+            ];
+
+            const currentHours = now.getHours() + now.getMinutes() / 60;
+            let nextPrayer = prayers.find(p => p.name !== 'الشروق' && p.raw > currentHours) || prayers[0];
+
+            document.getElementById('next-prayer-name').textContent = nextPrayer.name;
+            document.getElementById('next-prayer-time').textContent = `في الساعة ${nextPrayer.time}`;
+
+            document.getElementById('prayer-times-grid').innerHTML = prayers.map(p => {
+                const isActive = p.name === nextPrayer.name;
+                return `
+                    <div class="rounded-xl p-4 text-center transition-all duration-300 ${isActive ? 'prayer-active animate-pulse-gold' : 'glass-card gold-border hover:bg-amber-900/10'}">
+                        <div class="text-2xl mb-2">${p.icon}</div>
+                        <div class="text-sm font-bold ${isActive ? 'text-amber-200' : 'text-amber-100/80'}">${p.name}</div>
+                        <div class="text-lg font-bold mt-1 ${isActive ? 'gold-gradient' : 'text-white/90'}">${p.time}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateCountdown() {
+            const now = new Date();
+            const currentMinutes = now.getHours() * 60 + now.getMinutes();
+            const prayerList = [
+                { raw: prayerTimesData.fajrRaw }, { raw: prayerTimesData.dhuhrRaw }, { raw: prayerTimesData.asrRaw },
+                { raw: prayerTimesData.maghribRaw }, { raw: prayerTimesData.ishaRaw }
+            ];
+
+            let nextPrayerMinutes = prayerList.map(p => p.raw * 60).find(m => m > currentMinutes) || (prayerList[0].raw * 60 + 24 * 60);
+            const diff = Math.max(0, nextPrayerMinutes - currentMinutes);
+            const h = Math.floor(diff / 60), m = Math.floor(diff % 60), s = 59 - now.getSeconds();
+            document.getElementById('countdown-timer').textContent = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function renderCalendar() {
+            const targetDate = new Date(new Date().getFullYear(), new Date().getMonth() + calendarOffset, 1);
+            const year = targetDate.getFullYear(), month = targetDate.getMonth(), daysInMonth = new Date(year, month + 1, 0).getDate();
+            const hijriFirst = gregorianToHijri(year, month + 1, 1), hijriLast = gregorianToHijri(year, month + 1, daysInMonth);
+            
+            document.getElementById('cal-hijri-month').textContent = `${hijriMonths[hijriFirst.month - 1]} ${hijriFirst.year} هـ` + (hijriFirst.month !== hijriLast.month ? ` - ${hijriMonths[hijriLast.month - 1]} ${hijriLast.year} هـ` : '');
+            document.getElementById('cal-gregorian-month').textContent = `${gregorianMonthsAr[month]} ${year} م`;
+
+            let html = Array(new Date(year, month, 1).getDay()).fill('<div></div>').join('');
+            for (let d = 1; d <= daysInMonth; d++) {
+                const hijri = gregorianToHijri(year, month + 1, d);
+                const isToday = calendarOffset === 0 && d === new Date().getDate();
+                html += `
+                    <div class="relative p-1.5 rounded-lg text-center cursor-pointer hover:bg-amber-900/20 ${isToday ? 'bg-amber-700/30 border border-amber-500/50' : 'border border-transparent'}">
+                        <div class="text-sm font-bold ${isToday ? 'text-amber-200' : 'text-white/80'}">${d}</div>
+                        <div class="text-[10px] ${isToday ? 'text-amber-300' : 'text-amber-200/40'}">${hijri.day}</div>
+                    </div>
+                `;
+            }
+            document.getElementById('calendar-grid').innerHTML = html;
+        }
+
+        function renderEvents() {
+            const hijri = gregorianToHijri(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+            document.getElementById('events-list').innerHTML = islamicEvents.sort((a, b) => (((a.month - hijri.month + 12) % 12) * 30 + a.day) - (((b.month - hijri.month + 12) % 12) * 30 + b.day)).slice(0, 15).map(event => {
+                const isToday = event.month === hijri.month && event.day === hijri.day;
+                return `
+                    <div class="flex items-center gap-3 p-3 rounded-xl hover:bg-amber-900/15 ${isToday ? 'bg-amber-900/20 border border-amber-600/30' : 'border border-transparent'}">
+                        <div class="text-2xl">${event.icon}</div>
+                        <div class="flex-1">
+                            <div class="font-bold text-sm ${isToday ? 'text-amber-200' : 'text-amber-100/80'}">${event.name}</div>
+                            <div class="text-xs text-amber-200/50">${event.day} ${hijriMonths[event.month - 1]}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderMonthlyTable() {
+            const now = new Date(), year = now.getFullYear(), month = now.getMonth(), daysInMonth = new Date(year, month + 1, 0).getDate();
+            let html = '';
+            for (let d = 1; d <= daysInMonth; d++) {
+                const times = calculatePrayerTimes(currentLat, currentLng, new Date(year, month, d)), isToday = d === now.getDate();
+                html += `
+                    <tr class="border-b border-amber-700/10 ${isToday ? 'bg-amber-900/20' : 'hover:bg-amber-900/5'}">
+                        <td class="py-2 px-2 text-right"><span class="font-bold ${isToday ? 'text-amber-200' : 'text-white/70'}">${d}</span></td>
+                        <td class="py-2 px-2 text-center text-amber-100/70">${times.fajr}</td><td class="py-2 px-2 text-center text-amber-100/70">${times.sunrise}</td>
+                        <td class="py-2 px-2 text-center text-amber-100/70">${times.dhuhr}</td><td class="py-2 px-2 text-center text-amber-100/70">${times.asr}</td>
+                        <td class="py-2 px-2 text-center text-amber-100/70">${times.maghrib}</td><td class="py-2 px-2 text-center text-amber-100/70">${times.isha}</td>
+                    </tr>
+                `;
+            }
+            document.getElementById('monthly-table-body').innerHTML = html;
+        }
+
+        function updateQibla() {
+            const qibla = calculateQibla(currentLat, currentLng);
+            document.getElementById('qibla-degrees').textContent = `${Math.round(qibla)}°`;
+            document.getElementById('qibla-arrow').setAttribute('transform', `rotate(${qibla}, 100, 100)`);
+        }
+
+        function toggleSection(sectionName) {
+            if (activeSection === sectionName) return;
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(el => { el.classList.remove('tab-active'); el.classList.add('text-amber-200/60'); });
+            document.getElementById(`tab-${sectionName}`).classList.remove('hidden');
+            document.querySelector(`[data-tab="${sectionName}"]`).classList.add('tab-active');
+            activeSection = sectionName;
+            if (sectionName === 'monthly') renderMonthlyTable();
+        }
+
+        function changeMonth(delta) { calendarOffset += delta; renderCalendar(); }
+
+        function init() {
+            createStars(); updateDates(); renderPrayerTimes(); renderCalendar(); renderEvents(); updateQibla();
+            setInterval(updateCountdown, 1000);
+            
+            // استدعاء دالة الـ GPS بصمت في البداية
+            getCurrentLocation(true); 
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
